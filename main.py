@@ -21,10 +21,15 @@ def receive_webhook():
     text = data.get('text', '') or data.get('content', '')
     source = data.get('source', 'Social Media Alert')
 
+    print(f'📥 [Webhook 收到消息] Source: {source}, Text: {text}')
+
     if text:
       check_and_notify(title=text, source=source, link=data.get('url', ''))
-    return jsonify({'status': 'success'}), 200
+      return jsonify({'status': 'success', 'msg': 'Processed'}), 200
+    else:
+      return jsonify({'status': 'failed', 'msg': 'No text provided'}), 400
   except Exception as e:
+    print(f'❌ Webhook 異常: {e}')
     return jsonify({'error': str(e)}), 400
 
 
@@ -39,14 +44,11 @@ Thread(target=run).start()
 TELEGRAM_BOT_TOKEN = '8796696109:AAGTFdMeAEB5_cP70Ka-sqXlm1awVYpbrIA'
 TELEGRAM_CHAT_ID = '1423770007'
 
-# ⏱️ 輪詢間隔調低至 5 秒（極速反應）
 CHECK_INTERVAL = 5
-
 FMP_API_KEY = os.environ.get('FMP_API_KEY', 'demo')
 
-# ================= 3. 擴充：重大經濟與金融危機關鍵字 =================
+# ================= 3. 關鍵字庫 =================
 CRISIS_KEYWORDS = [
-    # --- 銀行與流動性危機 (Bank & Liquidity Crisis) ---
     'Deposit Outflow',
     'Asset-Liability Mismatch',
     'Unrealized Losses',
@@ -70,7 +72,6 @@ CRISIS_KEYWORDS = [
     '債務違約',
     '流動性危機',
     '信貸緊縮',
-    # --- 市場暴跌與崩盤 (Market Crash & Extreme Volatility) ---
     'market crash',
     'stock plunge',
     'circuit breaker',
@@ -84,7 +85,6 @@ CRISIS_KEYWORDS = [
     '恐慌性拋售',
     '熔斷',
     '黑天鵝',
-    # --- 央行與總體經濟巨變 (Central Bank & Macro Disruption) ---
     'Data-Driven',
     'Policy Divergence',
     'Tightening Plateau',
@@ -101,7 +101,6 @@ CRISIS_KEYWORDS = [
     '經濟衰退',
     '滯脹',
     '殖利率倒掛',
-    # --- 地緣政治與全球衝擊 (Geopolitical & Energy Shock) ---
     'Financial Fragmentation',
     'Geopolitical Shock',
     'Friend-shoring',
@@ -113,7 +112,6 @@ CRISIS_KEYWORDS = [
     '石油危機',
     '金融制裁',
     '貿易禁運',
-    # --- 關稅與貿易戰 (Tariffs & Trade War) ---
     'tariff',
     'trade war',
     'sanction',
@@ -128,19 +126,25 @@ def send_telegram_msg(message):
   url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage'
   payload = {'chat_id': TELEGRAM_CHAT_ID, 'text': message}
   try:
-    requests.post(url, json=payload, timeout=3)
+    res = requests.post(url, json=payload, timeout=5)
+    if res.status_code != 200:
+      print(f'❌ Telegram 發送失敗: {res.text}')
+    else:
+      print('✅ Telegram 發送成功！')
   except Exception as e:
-    print(f'Telegram 發送失敗: {e}')
+    print(f'❌ Telegram 發送異常: {e}')
 
 
 def check_and_notify(title, source, link='', summary=''):
   content = f'{title} {summary}'.lower()
+
+  # 雙向轉小寫比對，確保 100% 抓到
   matched_keywords = [
       kw for kw in CRISIS_KEYWORDS if kw.lower() in content
   ]
 
   if matched_keywords:
-    keywords_str = ', '.join(matched_keywords)
+    keywords_str = ', '.join(set(matched_keywords))
     msg = (
         f'⚡【即時市場警報】\n'
         f'📡 來源：{source}\n'
@@ -149,7 +153,9 @@ def check_and_notify(title, source, link='', summary=''):
         f'🔗 連結：{link if link else "無"}'
     )
     send_telegram_msg(msg)
-    print(f'🔥 [已發送警報] {title}')
+    print(f'🔥 [已觸發發送] {title}')
+  else:
+    print(f'⚠️ 收到消息但未匹配到關鍵字: {title}')
 
 
 # ================= 4. 金融快訊 API 數據源抓取 =================
@@ -170,16 +176,16 @@ def fetch_fmp_realtime_news():
               summary=item.get('content', ''),
           )
   except Exception as e:
-    print(f'FMP API 抓取失敗: {e}')
+    pass
 
 
-print('🚀 5 秒極速全方位金融危機與 Webhook 監控機器人已啟動...')
+print('🚀 5 秒極速機器人已啟動...')
 
 # ================= 5. 主輪詢迴圈 =================
 while True:
   try:
     fetch_fmp_realtime_news()
   except Exception as e:
-    print(f'主迴圈異常: {e}')
+    pass
 
   time.sleep(CHECK_INTERVAL)
