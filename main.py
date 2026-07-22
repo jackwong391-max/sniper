@@ -41,7 +41,7 @@ def run():
 Thread(target=run).start()
 
 # ================= 2. Telegram & API 設定 =================
-TELEGRAM_BOT_TOKEN = '8796696109:AAGTFdMeAEB5_cP70Ka-sqXlm1awVYpbrIA'
+TELEGRAM_BOT_TOKEN = '8796696109:AAGTFdWEaEB5_cP70Ka-sqXlWlawVYpbrIA'
 TELEGRAM_CHAT_ID = '1423770007'
 
 CHECK_INTERVAL = 5
