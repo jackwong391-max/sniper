@@ -1,17 +1,31 @@
 import os
 import time
 from threading import Thread
-from flask import Flask
-import feedparser
+from flask import Flask, jsonify, request
 import requests
 
-# ================= 1. Web 伺服器 (讓 Render 順利偵測 Port) =================
+# ================= 1. Web 伺服器 (包含 Webhook 接收端點) =================
 app = Flask('')
 
 
 @app.route('/')
 def home():
-  return 'Market Crisis Monitor Bot is Active!'
+  return 'Fast News & Crisis Monitor Active (5s Ultra-Fast)!'
+
+
+# ⚡ 方案 A：Webhook 接收端點 (接收 Twitter/Truth Social/Zapier 等外部極速推播)
+@app.route('/webhook', methods=['POST'])
+def receive_webhook():
+  try:
+    data = request.json or {}
+    text = data.get('text', '') or data.get('content', '')
+    source = data.get('source', 'Social Media Alert')
+
+    if text:
+      check_and_notify(title=text, source=source, link=data.get('url', ''))
+    return jsonify({'status': 'success'}), 200
+  except Exception as e:
+    return jsonify({'error': str(e)}), 400
 
 
 def run():
@@ -19,25 +33,27 @@ def run():
   app.run(host='0.0.0.0', port=port)
 
 
-# 啟動背景網頁伺服器
 Thread(target=run).start()
 
-# ================= 2. Telegram 設定 =================
+# ================= 2. Telegram & API 設定 =================
 TELEGRAM_BOT_TOKEN = '8796696109:AAGTFdMeAEB5_cP70Ka-sqXlm1awVYpbrIA'
 TELEGRAM_CHAT_ID = '1423770007'
 
-CHECK_INTERVAL = 60  # 每 60 秒檢查一次
+# ⏱️ 輪詢間隔調低至 5 秒（極速反應）
+CHECK_INTERVAL = 5
+
+FMP_API_KEY = os.environ.get('FMP_API_KEY', 'demo')
 
 # ================= 3. 擴充：重大經濟與金融危機關鍵字 =================
 CRISIS_KEYWORDS = [
     # --- 銀行與流動性危機 (Bank & Liquidity Crisis) ---
-    'Deposit Outflow'
-    'Asset-Liability Mismatch'
-    'Unrealized Losses'
-    'Spike in Borrowing Costs'
-    'Uninsured Deposits'
-    'Liquidity Crunch'
-    'Fire Sale'
+    'Deposit Outflow',
+    'Asset-Liability Mismatch',
+    'Unrealized Losses',
+    'Spike in Borrowing Costs',
+    'Uninsured Deposits',
+    'Liquidity Crunch',
+    'Fire Sale',
     'bank collapse',
     'bank run',
     'liquidity crisis',
@@ -69,11 +85,11 @@ CRISIS_KEYWORDS = [
     '熔斷',
     '黑天鵝',
     # --- 央行與總體經濟巨變 (Central Bank & Macro Disruption) ---
-    'Data-Driven'
-    'Policy Divergence'
-    'Tightening Plateau'
-    'Stagflation'
-    'Second-Round Effects'
+    'Data-Driven',
+    'Policy Divergence',
+    'Tightening Plateau',
+    'Stagflation',
+    'Second-Round Effects',
     'emergency rate cut',
     'unplanned fed meeting',
     'rate hike',
@@ -86,10 +102,10 @@ CRISIS_KEYWORDS = [
     '滯脹',
     '殖利率倒掛',
     # --- 地緣政治與全球衝擊 (Geopolitical & Energy Shock) ---
-    'Financial Fragmentation'
-    'Geopolitical Shock'
-    'Friend-shoring'
-    'Energy Disruption'
+    'Financial Fragmentation',
+    'Geopolitical Shock',
+    'Friend-shoring',
+    'Energy Disruption',
     'oil shock',
     'trade embargo',
     'financial sanctions',
@@ -97,79 +113,73 @@ CRISIS_KEYWORDS = [
     '石油危機',
     '金融制裁',
     '貿易禁運',
+    # --- 關稅與貿易戰 (Tariffs & Trade War) ---
+    'tariff',
+    'trade war',
+    'sanction',
+    '關稅',
+    '貿易戰',
 ]
 
-# ================= 4. 擴充：權威財經與市場 RSS 新聞來源 =================
-RSS_FEEDS = {
-    'Reuters Politics': (
-        'https://www.reutersagency.com/feed/?best-topics=political-general&post_type=best'
-    ),
-    'CNBC Top News': 'https://search.cnbc.com/rs/search/combined/rss/show?id=100003114',
-    'CNBC World Economy': (
-        'https://search.cnbc.com/rs/search/combined/rss/show?id=20911058'
-    ),
-    'CNBC Finance': (
-        'https://search.cnbc.com/rs/search/combined/rss/show?id=10000664'
-    ),
-    'MarketWatch Top Stories': (
-        'http://feeds.marketwatch.com/marketwatch/topstories/'
-    ),
-    'MarketWatch Real-time Headlines': (
-        'http://feeds.marketwatch.com/marketwatch/bulletins'
-    ),
-    'FT Global Economy': 'https://www.ft.com/global-economy?format=rss',
-}
-
-seen_posts = set()
+seen_articles = set()
 
 
 def send_telegram_msg(message):
   url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage'
   payload = {'chat_id': TELEGRAM_CHAT_ID, 'text': message}
   try:
-    requests.post(url, json=payload, timeout=10)
+    requests.post(url, json=payload, timeout=3)
   except Exception as e:
-    print(f'發送 Telegram 訊息失敗: {e}')
+    print(f'Telegram 發送失敗: {e}')
 
 
-print('🚨 全球金融危機監控機器人已成功啟動...')
+def check_and_notify(title, source, link='', summary=''):
+  content = f'{title} {summary}'.lower()
+  matched_keywords = [
+      kw for kw in CRISIS_KEYWORDS if kw.lower() in content
+  ]
 
-# ================= 5. 核心監控迴圈 =================
+  if matched_keywords:
+    keywords_str = ', '.join(matched_keywords)
+    msg = (
+        f'⚡【即時市場警報】\n'
+        f'📡 來源：{source}\n'
+        f'🎯 關鍵字：{keywords_str}\n\n'
+        f'📰 內容：{title}\n\n'
+        f'🔗 連結：{link if link else "無"}'
+    )
+    send_telegram_msg(msg)
+    print(f'🔥 [已發送警報] {title}')
+
+
+# ================= 4. 金融快訊 API 數據源抓取 =================
+def fetch_fmp_realtime_news():
+  url = f'https://financialmodelingprep.com/api/v3/fmp/articles?page=0&size=5&apikey={FMP_API_KEY}'
+  try:
+    response = requests.get(url, timeout=3)
+    if response.status_code == 200:
+      articles = response.json().get('content', [])
+      for item in articles:
+        article_id = str(item.get('id', item.get('title')))
+        if article_id not in seen_articles:
+          seen_articles.add(article_id)
+          check_and_notify(
+              title=item.get('title', ''),
+              source='FMP Financial News',
+              link=item.get('link', ''),
+              summary=item.get('content', ''),
+          )
+  except Exception as e:
+    print(f'FMP API 抓取失敗: {e}')
+
+
+print('🚀 5 秒極速全方位金融危機與 Webhook 監控機器人已啟動...')
+
+# ================= 5. 主輪詢迴圈 =================
 while True:
   try:
-    for source, feed_url in RSS_FEEDS.items():
-      feed = feedparser.parse(feed_url)
-
-      # 每次掃描最新 5 則新聞
-      for entry in feed.entries[:5]:
-        post_id = entry.get('id', entry.link)
-
-        if post_id not in seen_posts:
-          seen_posts.add(post_id)
-
-          title = entry.title
-          summary = entry.get('summary', '')
-          content_to_check = f'{title} {summary}'.lower()
-
-          # 比對關鍵字
-          matched_keywords = [
-              kw for kw in CRISIS_KEYWORDS if kw.lower() in content_to_check
-          ]
-
-          # 若觸發關鍵字，即時發送警報
-          if matched_keywords:
-            keywords_str = ', '.join(matched_keywords)
-            msg = (
-                f'🚨【市場危機警報】\n'
-                f'📡 來源：{source}\n'
-                f'🎯 觸發關鍵字：{keywords_str}\n\n'
-                f'📰 標題：{title}\n\n'
-                f'🔗 連結：{entry.link}'
-            )
-            send_telegram_msg(msg)
-            print(f'🔥 攔截到重大新聞: {title} (關鍵字: {keywords_str})')
-
+    fetch_fmp_realtime_news()
   except Exception as e:
-    print(f'擷取 RSS 時發生錯誤: {e}')
+    print(f'主迴圈異常: {e}')
 
   time.sleep(CHECK_INTERVAL)
