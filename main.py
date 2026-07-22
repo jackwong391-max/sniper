@@ -1,91 +1,175 @@
+import os
 import time
-import requests
+from threading import Thread
+from flask import Flask
 import feedparser
-import datetime
+import requests
 
-# ================= 填入你的資料 =================
-# 請把雙引號裡面的文字替換成你剛才拿到的 Token 與 ID
-TELEGRAM_BOT_TOKEN = "8796696109:AAGTFdWEaEB5_cP70Ka-sqXlWlawVYpbrIA"
-TELEGRAM_CHAT_ID = "1423770007"
-# ===============================================
+# ================= 1. Web 伺服器 (讓 Render 順利偵測 Port) =================
+app = Flask('')
 
-# 輪詢間隔時間（60 秒 = 1分鐘檢查一次）
-CHECK_INTERVAL = 60 
 
-# 監控的新聞 RSS 來源
-RSS_FEEDS = {
-    "Reuters Political": "https://www.reutersagency.com/feed/?best-topics=political-general&post_type=best",
-    "CNBC Top News": "https://search.cnbc.com/rs/search/combinedradios/rss.xml?partnerId=2000&keywords=breakingnews",
-    "FT Global Economy": "https://www.ft.com/global-economy?format=rss"
-}
+@app.route('/')
+def home():
+  return 'Market Crisis Monitor Bot is Active!'
 
-# 觸發警報的關鍵字
+
+def run():
+  port = int(os.environ.get('PORT', 8080))
+  app.run(host='0.0.0.0', port=port)
+
+
+# 啟動背景網頁伺服器
+Thread(target=run).start()
+
+# ================= 2. Telegram 設定 =================
+TELEGRAM_BOT_TOKEN = '8796696109:AAGTFdMeAEB5_cP70Ka-sqXlm1awVYpbrIA'
+TELEGRAM_CHAT_ID = '1423770007'
+
+CHECK_INTERVAL = 60  # 每 60 秒檢查一次
+
+# ================= 3. 擴充：重大經濟與金融危機關鍵字 =================
 CRISIS_KEYWORDS = [
-    # 財經危機
-    "bank bankruptcy", "bank run", "financial crisis", "market crash", "default", "liquidity crisis",
-    "銀行倒閉", "擠兌", "金融危機", "股市暴跌", "違約", "流動性危機", "破產",
-    # 地緣政治與軍事衝突
-    "war", "missile", "invasion", "sanctions", "state of emergency", "coup", "strait closed",
-    "戰爭", "飛彈", "入侵", "制制", "緊急狀態", "政變", "封鎖海峽", "開火"
+    # --- 銀行與流動性危機 (Bank & Liquidity Crisis) ---
+    'Deposit Outflow'
+    'Asset-Liability Mismatch'
+    'Unrealized Losses'
+    'Spike in Borrowing Costs'
+    'Uninsured Deposits'
+    'Liquidity Crunch'
+    'Fire Sale'
+    'bank collapse',
+    'bank run',
+    'liquidity crisis',
+    'credit crunch',
+    'insolvency',
+    'bankruptcy',
+    'default',
+    'bailout',
+    'counterparty risk',
+    '銀行倒閉',
+    '擠提',
+    '金融危機',
+    '破產',
+    '債務違約',
+    '流動性危機',
+    '信貸緊縮',
+    # --- 市場暴跌與崩盤 (Market Crash & Extreme Volatility) ---
+    'market crash',
+    'stock plunge',
+    'circuit breaker',
+    'panic sell',
+    'sell-off',
+    'freefall',
+    'market meltdown',
+    'black swan',
+    '崩盤',
+    '暴跌',
+    '恐慌性拋售',
+    '熔斷',
+    '黑天鵝',
+    # --- 央行與總體經濟巨變 (Central Bank & Macro Disruption) ---
+    'Data-Driven'
+    'Policy Divergence'
+    'Tightening Plateau'
+    'Stagflation'
+    'Second-Round Effects'
+    'emergency rate cut',
+    'unplanned fed meeting',
+    'rate hike',
+    'hyperinflation',
+    'stagflation',
+    'recession',
+    'yield curve inversion',
+    '緊急降息',
+    '經濟衰退',
+    '滯脹',
+    '殖利率倒掛',
+    # --- 地緣政治與全球衝擊 (Geopolitical & Energy Shock) ---
+    'Financial Fragmentation'
+    'Geopolitical Shock'
+    'Friend-shoring'
+    'Energy Disruption'
+    'oil shock',
+    'trade embargo',
+    'financial sanctions',
+    'strait blockage',
+    '石油危機',
+    '金融制裁',
+    '貿易禁運',
 ]
 
-seen_news_ids = set()
+# ================= 4. 擴充：權威財經與市場 RSS 新聞來源 =================
+RSS_FEEDS = {
+    'Reuters Politics': (
+        'https://www.reutersagency.com/feed/?best-topics=political-general&post_type=best'
+    ),
+    'CNBC Top News': 'https://search.cnbc.com/rs/search/combined/rss/show?id=100003114',
+    'CNBC World Economy': (
+        'https://search.cnbc.com/rs/search/combined/rss/show?id=20911058'
+    ),
+    'CNBC Finance': (
+        'https://search.cnbc.com/rs/search/combined/rss/show?id=10000664'
+    ),
+    'MarketWatch Top Stories': (
+        'http://feeds.marketwatch.com/marketwatch/topstories/'
+    ),
+    'MarketWatch Real-time Headlines': (
+        'http://feeds.marketwatch.com/marketwatch/bulletins'
+    ),
+    'FT Global Economy': 'https://www.ft.com/global-economy?format=rss',
+}
 
-def send_telegram(title, link, source, published):
-    message = (
-        f"🚨 **【重大危機警報】**\n\n"
-        f"📌 **新聞標題：** {title}\n"
-        f"🌐 **新聞來源：** {source}\n"
-        f"⏰ **發布時間：** {published}\n\n"
-        f"🔗 [點此閱讀新聞全文]({link})"
-    )
-    
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": False
-    }
-    try:
-        res = requests.post(url, json=payload)
-        res.raise_for_status()
-        print(f"✅ 成功發送警報至 Telegram: {title}")
-    except Exception as e:
-        print(f"❌ Telegram 發送失敗: {e}")
+seen_posts = set()
 
-def check_news():
-    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] 正在掃描新聞數據源...")
-    for source_name, feed_url in RSS_FEEDS.items():
-        try:
-            feed = feedparser.parse(feed_url)
-            for entry in feed.entries:
-                news_id = entry.get("id", entry.link)
-                if news_id in seen_news_ids:
-                    continue
-                
-                title = entry.title
-                summary = entry.get("summary", "")
-                text_to_check = f"{title} {summary}".lower()
-                
-                if any(kw.lower() in text_to_check for kw in CRISIS_KEYWORDS):
-                    published = entry.get("published", "最新突發")
-                    send_telegram(title, entry.link, source_name, published)
-                
-                seen_news_ids.add(news_id)
-        except Exception as e:
-            print(f"抓取 {source_name} 失敗: {e}")
 
-if __name__ == "__main__":
-    print("🤖 危機監控機器人啟動中...")
-    # 載入現有新聞標題，避免啟動時被舊新聞洗版
-    for feed_url in RSS_FEEDS.values():
-        feed = feedparser.parse(feed_url)
-        for entry in feed.entries:
-            seen_news_ids.add(entry.get("id", entry.link))
-            
-    print("✅ 初始新聞載入完成！開始進入 24/7 實時監控模式...")
-    
-    while True:
-        check_news()
-        time.sleep(CHECK_INTERVAL)
+def send_telegram_msg(message):
+  url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage'
+  payload = {'chat_id': TELEGRAM_CHAT_ID, 'text': message}
+  try:
+    requests.post(url, json=payload, timeout=10)
+  except Exception as e:
+    print(f'發送 Telegram 訊息失敗: {e}')
+
+
+print('🚨 全球金融危機監控機器人已成功啟動...')
+
+# ================= 5. 核心監控迴圈 =================
+while True:
+  try:
+    for source, feed_url in RSS_FEEDS.items():
+      feed = feedparser.parse(feed_url)
+
+      # 每次掃描最新 5 則新聞
+      for entry in feed.entries[:5]:
+        post_id = entry.get('id', entry.link)
+
+        if post_id not in seen_posts:
+          seen_posts.add(post_id)
+
+          title = entry.title
+          summary = entry.get('summary', '')
+          content_to_check = f'{title} {summary}'.lower()
+
+          # 比對關鍵字
+          matched_keywords = [
+              kw for kw in CRISIS_KEYWORDS if kw.lower() in content_to_check
+          ]
+
+          # 若觸發關鍵字，即時發送警報
+          if matched_keywords:
+            keywords_str = ', '.join(matched_keywords)
+            msg = (
+                f'🚨【市場危機警報】\n'
+                f'📡 來源：{source}\n'
+                f'🎯 觸發關鍵字：{keywords_str}\n\n'
+                f'📰 標題：{title}\n\n'
+                f'🔗 連結：{entry.link}'
+            )
+            send_telegram_msg(msg)
+            print(f'🔥 攔截到重大新聞: {title} (關鍵字: {keywords_str})')
+
+  except Exception as e:
+    print(f'擷取 RSS 時發生錯誤: {e}')
+
+  time.sleep(CHECK_INTERVAL)
